@@ -1,0 +1,118 @@
+``
+
+```{r}
+library(tidyverse)
+library(broom)
+library(haven)
+library(ggplot2)
+
+```
+
+Calculate mortality rates in units of deaths per 100,000 person-years. For example, the rate of death per 100,000 person-years from any cause can be calculated as `cod_any = 100000 *
+cod_any / (pop / 12)`
+
+```{r}
+data <- read_dta("all.dta")
+f1 <- function(x)
+  {
+  cod =100000*x/(data$pop/12)
+}
+data1 <- sapply(data[,-c(1,15)], f1)
+data1 <- cbind(data$agemo_mda, data1, data$pop)
+colnames(data1)[1] <- "agemo_mda"
+colnames(data1)[15] <- "pop"
+data1 <- as.data.frame(data1)
+
+names(data1)
+head(data1)
+```
+
+
+1. Calculate mortality rates due to any cause for individuals in the sample who are 1–24 months above
+the MLDA and for those who are 1–24 months below the MLDA. Does this difference between these
+two groups plausibly describe the causal effect of reaching the MLDA on mortality? Why or why not?
+
+
+```{r}
+
+filter(data1, (data1$agemo_mda>=1) & (data1$agemo_mda <= 24))$cod_any
+filter(data1, (data1$agemo_mda>=-24) & (data1$agemo_mda <= -1))$cod_any
+mean(filter(data1, (data1$agemo_mda>=1) & (data1$agemo_mda <= 24))$cod_any) - mean(filter(data1, (data1$agemo_mda>=-24) & (data1$agemo_mda <= -1))$cod_any)
+
+```
+
+Theory 1: No because the difference between the two groups is very large, the difference in their ages are two poles apart and almost 4 years which tells us that the both groups are exposed to different factors which results for the cause of mortality
+
+
+
+2. Create a scatter plot showing mortality rates due to (a) any cause and (b) motor vehicle accidents.
+Use black squares as markers for any cause of death and blue circles as markers for mortality due to
+motor vehicle accidents. Limit the plot to people who are within 2 years of the MLDA. Add a vertical
+line at the age at which driving eligibility begins.
+
+```{r}
+data %>%
+  filter((agemo_mda > -25) & (agemo_mda < 25)) %>%
+  ggplot() +
+  geom_point(aes(x = agemo_mda, y = cod_any), shape = 15, color = 'black') + #Any COD = Black Squares (15)
+  geom_point(aes(x = agemo_mda, y = cod_MVA), shape = 16, color = 'blue') + #MVA = Blue Circles (16)
+  geom_vline(xintercept = 0) # Vertical Line
+```
+
+
+
+3. Non-parametric “donut” RD. Calculate a non-parametric RD estimated effect of driving on mortality
+rates due to (a) any cause and (b) motor vehicle accidents. Calculate these estimates using four
+different bandwidths: 48, 24, 12, and 6 months. Omit the partially-treated observation
+`agemo_mda==0` from the estimation to generate what is called a “donut” RD. Use linear regression
+to calculate all these values, and report and describe this equation in your answer below. Report the results in a three-column table with 4 rows (one row per bandwidth). Column (1) should report the bandwidth, column (2) the RD estimate for all-cause mortality, and column (3) the RD estimate for motor vehicle accident mortality. Discuss whether/why point estimates and their precision change as the bandwidth becomes smaller.
+
+```{r}
+data1$Treat <-data1$agemo_mda >0
+data1 <-filter(data1, data1$agemo_mda!=0)
+data2 <-subset(data1, select = c(1,2,4,16))
+arr_bdw<- c(48,24,12,6)
+result<-data.frame(bandwidth = arr_bdw, rd_all = 1:4, rd_MVA = 1:4)
+for (i in 1:4) 
+  {
+  lm1 <- lm(cod_any ~Treat,data=subset(data2,abs(agemo_mda) <= result$bandwidth[i]))
+  result$rd_all[i]<-lm1$coefficients["TreatTRUE"]
+  lm2 <- lm(cod_MVA ~Treat,data=subset(data2,abs(agemo_mda) <= result$bandwidth[i]))
+  result$rd_MVA[i]<-lm2$coefficients["TreatTRUE"]
+}
+
+result
+
+```
+3rd theory: From the above results we say that the RD estimates are going down by reducing the bandwidth, we can say that if bandwidth is large then the difference in groups is maximized due to the other factors which makes them two different types of population. Viceversa if you think about the low bandwidth it tells that the two groups are similar approximately except for fact that one is a treated and not treated.
+
+
+4. RD. Calculate a parametric RD estimated effect of driving on mortality rates due
+to (a) any cause and (b) motor vehicle accidents. Allow for linear trends on either side of the cutoff.
+Calculate these estimates using four different bandwidths: 48, 24, 12, and 6 months. Omit the
+partially-treated observation `agemo_mda==0` from the estimation to perform a “donut” RD. Use
+linear regression to calculate all these values, and report and describe this equation in your answer
+below. Report the results in a three-column table with 4 rows (one row per bandwidth). Column (1)
+should report the bandwidth, column (2) the RD estimate for all-cause mortality, and column (3) the
+RD estimate for motor vehicle accident mortality. Discuss whether/why point estimates and their
+precision change as the bandwidth becomes smaller. How do these parametric estimates compare to
+the non-parametric RD estimates?
+
+
+```{r}
+data3 <- subset(data1, select = c(1,2,4,16))
+data3$TreatAGE_cutoff <- data3$Treat * data3$agemo_mda
+data3 <- data3[-25,]
+arr_bdw<- c(48,24,12,6)
+result <-data.frame(bandwidth =arr_bdw, rd_all=1:4, rd_MVA=1:4)
+for (i in 1:4) 
+  {
+  lm3 <- lm(cod_any ~Treat+agemo_mda +TreatAGE_cutoff, data=subset(data3,abs(agemo_mda)<= result$bandwidth[i]))
+  result$rd_all[i] <- lm3$coefficients["TreatTRUE"]
+  lm4 <- lm(cod_MVA ~Treat+agemo_mda +TreatAGE_cutoff,data=subset(data3,abs(agemo_mda) <=result$bandwidth[i]))
+  result$rd_MVA[i]<-lm4$coefficients["TreatTRUE"]
+}
+result
+```
+
+4th Theory: After looking at the results for both parametric and non parametric, the non parametric values are larger than parametric. So, the parametric estimates can be considered to be a better estimate since they allowed the fitting of different curves above and below the cut off this makes theat different fits for treatment and control groups.
